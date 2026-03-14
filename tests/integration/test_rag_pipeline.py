@@ -18,37 +18,41 @@ from meteorag.rag.pipeline import MeteoRAG
 class TestRAGPipelineIntegration:
     """Testes de integração do pipeline completo (com dados mockados).
 
-    Simula o fluxo completo: dados INMET → chunks → índice → busca,
+    Simula o fluxo completo: dados Open-Meteo → chunks → índice → busca,
     sem requisições HTTP reais.
     """
 
     @pytest.fixture()
     def mock_rag(
         self,
-        sample_hourly_observations: list[dict[str, Any]],
+        sample_openmeteo_response: dict[str, Any],
         sample_alerts: list[dict[str, Any]],
     ) -> MeteoRAG:
-        """Cria MeteoRAG com client INMET mockado."""
+        """Cria MeteoRAG com clients mockados."""
         rag = MeteoRAG()
 
-        # Mock das chamadas HTTP
-        mock_resp_obs = MagicMock()
-        mock_resp_obs.status_code = 200
-        mock_resp_obs.json.return_value = sample_hourly_observations
-        mock_resp_obs.raise_for_status = MagicMock()
+        # Mock do Open-Meteo HTTP
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = sample_openmeteo_response
+        mock_resp.text = "{}"
+        mock_resp.raise_for_status = MagicMock()
 
-        mock_resp_alerts = MagicMock()
-        mock_resp_alerts.status_code = 200
-        mock_resp_alerts.json.return_value = sample_alerts
-        mock_resp_alerts.raise_for_status = MagicMock()
+        # Mock dos alertas INMET
+        mock_alerts_resp = MagicMock()
+        mock_alerts_resp.status_code = 200
+        mock_alerts_resp.json.return_value = sample_alerts
+        mock_alerts_resp.raise_for_status = MagicMock()
 
-        def side_effect(url: str, **kwargs: Any) -> MagicMock:
-            if "alertas" in url:
-                return mock_resp_alerts
-            return mock_resp_obs
-
-        with patch.object(rag.client._session, "get", side_effect=side_effect):
-            rag.index_city("A518", "Juiz de Fora")
+        with (
+            patch.object(rag.weather_client._session, "get", return_value=mock_resp),
+            patch.object(
+                rag.inmet_client._session,
+                "get",
+                return_value=mock_alerts_resp,
+            ),
+        ):
+            rag.index_city("Juiz de Fora")
 
         return rag
 

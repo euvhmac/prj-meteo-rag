@@ -98,8 +98,13 @@ def chunk_daily_summary(summary: dict[str, Any]) -> dict[str, Any]:
     humidity = _safe_fmt(summary.get("avg_humidity_pct"), "%")
     obs_count = summary.get("observation_count", 0)
 
+    # Condição WMO (Open-Meteo) — opcional, ausente em dados INMET
+    weather_desc = summary.get("weather_description", "")
+    weather_part = f"Condição: {weather_desc}. " if weather_desc else ""
+
     text = (
         f"Resumo diário — {city} ({code}) — {date_br}: "
+        f"{weather_part}"
         f"{rain_desc}. "
         f"Temperatura máxima de {max_temp} e mínima de {min_temp}. "
         f"Umidade média de {humidity}. "

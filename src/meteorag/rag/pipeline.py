@@ -1,18 +1,19 @@
-"""Pipeline RAG — orquestra INMET client, chunker e retriever.
+"""Pipeline RAG — orquestra Open-Meteo client, INMET alerts, chunker e retriever.
 
 Classe ``MeteoRAG`` é o ponto de entrada principal que coordena:
-1. Busca de dados via ``INMETClient``
-2. Conversão em chunks via ``MeteoChunker``
-3. Indexação e busca via ``TFIDFRetriever``
+1. Busca de dados meteorológicos via ``OpenMeteoClient`` (fonte principal)
+2. Busca de alertas via ``INMETClient`` (best-effort)
+3. Conversão em chunks via ``MeteoChunker``
+4. Indexação e busca via ``TFIDFRetriever``
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
 from typing import Any
 
-from meteorag.api.inmet_client import MG_PRIORITY_STATIONS, INMETClient
+from meteorag.api.inmet_client import INMETClient
+from meteorag.api.openmeteo_client import MG_CITIES, OpenMeteoClient
 from meteorag.config import Settings
 from meteorag.rag.chunker import MeteoChunker
 from meteorag.rag.retriever import TFIDFRetriever
@@ -23,23 +24,26 @@ logger = logging.getLogger(__name__)
 class MeteoRAG:
     """Pipeline RAG meteorológico completo.
 
-    Coordena a busca de dados do INMET, chunking e retrieval TF-IDF
-    para responder perguntas sobre clima em Minas Gerais.
+    Coordena a busca de dados do Open-Meteo (principal) e alertas
+    do INMET, chunking e retrieval TF-IDF para responder perguntas
+    sobre clima em Minas Gerais.
 
     Attributes:
-        client: Cliente da API INMET.
+        weather_client: Cliente da API Open-Meteo (fonte principal).
+        inmet_client: Cliente da API INMET (apenas alertas).
         chunker: Conversor de dados para chunks textuais.
         retriever: Motor de busca TF-IDF.
 
     Example:
         >>> rag = MeteoRAG()
-        >>> rag.index_city("A518", "Juiz de Fora")
+        >>> rag.index_city("Juiz de Fora")
         >>> results = rag.retrieve("chuva ontem")
     """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or Settings()
-        self.client = INMETClient(self._settings)
+        self.weather_client = OpenMeteoClient(self._settings)
+        self.inmet_client = INMETClient(self._settings)
         self.chunker = MeteoChunker(self._settings)
         self.retriever = TFIDFRetriever(self._settings)
         self._all_chunks: list[dict[str, Any]] = []
@@ -62,42 +66,32 @@ class MeteoRAG:
 
     def index_city(
         self,
-        station_code: str,
         city: str,
-        start_date: date | None = None,
-        end_date: date | None = None,
+        days_back: int | None = None,
     ) -> int:
-        """Busca dados do INMET para uma cidade e indexa os chunks.
+        """Busca dados do Open-Meteo + alertas INMET e indexa os chunks.
 
         O índice TF-IDF é reconstruído do zero incluindo todos os
         chunks acumulados (de todas as cidades já indexadas).
 
         Args:
-            station_code: Código da estação INMET (ex: ``A518``).
-            city: Nome da cidade.
-            start_date: Data de início (default: ``default_days_back`` dias atrás).
-            end_date: Data de fim (default: hoje).
+            city: Nome da cidade (deve existir em ``MG_CITIES``).
+            days_back: Dias retroativos (default: ``default_days_back``).
 
         Returns:
             Número total de chunks no índice após indexação.
         """
-        if end_date is None:
-            end_date = date.today()
-        if start_date is None:
-            start_date = end_date - timedelta(days=self._settings.default_days_back)
+        if days_back is None:
+            days_back = self._settings.default_days_back
 
-        logger.info(
-            "Indexando %s (%s) de %s a %s",
-            city,
-            station_code,
-            start_date,
-            end_date,
-        )
+        logger.info("Indexando %s (days_back=%d)", city, days_back)
 
-        # Busca dados
-        observations = self.client.get_observations(station_code, start_date, end_date)
-        daily_summaries = self.client.get_daily_summaries(station_code, city, start_date, end_date)
-        alerts = self.client.get_alerts("MG")
+        # Busca dados via Open-Meteo (fonte principal)
+        observations = self.weather_client.get_observations(city, days_back)
+        daily_summaries = self.weather_client.get_daily_summaries(city, days_back)
+
+        # Alertas INMET (best-effort — não falha se indisponível)
+        alerts = self._fetch_alerts_safe()
 
         # Gera chunks
         new_chunks = self.chunker.chunk_all(
@@ -105,11 +99,11 @@ class MeteoRAG:
             observations=observations,
             alerts=alerts,
             city=city,
-            station_code=station_code,
+            station_code="Open-Meteo",
         )
 
         if not new_chunks:
-            logger.warning("Nenhum chunk gerado para %s (%s).", city, station_code)
+            logger.warning("Nenhum chunk gerado para %s.", city)
             return self.retriever.chunk_count
 
         # Remove chunks antigos da mesma cidade e acumula novos
@@ -131,22 +125,20 @@ class MeteoRAG:
 
         return total
 
-    def index_priority_stations(
+    def index_priority_cities(
         self,
-        start_date: date | None = None,
-        end_date: date | None = None,
+        days_back: int | None = None,
     ) -> int:
-        """Indexa todas as estações prioritárias de MG.
+        """Indexa todas as cidades prioritárias de MG.
 
         Args:
-            start_date: Data de início.
-            end_date: Data de fim.
+            days_back: Dias retroativos.
 
         Returns:
             Número total de chunks no índice.
         """
-        for code, city in MG_PRIORITY_STATIONS.items():
-            self.index_city(code, city, start_date, end_date)
+        for city in MG_CITIES:
+            self.index_city(city, days_back)
 
         return self.retriever.chunk_count
 
@@ -201,7 +193,7 @@ class MeteoRAG:
         if not results:
             return (
                 "Não há dados meteorológicos disponíveis no momento. "
-                "Os dados podem estar sendo atualizados ou a API INMET "
+                "Os dados podem estar sendo atualizados ou a API "
                 "pode estar temporariamente indisponível."
             )
 
@@ -216,18 +208,14 @@ class MeteoRAG:
     def refresh(self) -> int:
         """Re-indexa todas as cidades previamente indexadas com dados frescos.
 
-        Limpa o cache do cliente INMET e reconstrói o índice.
+        Limpa os caches e reconstrói o índice.
 
         Returns:
             Número total de chunks após re-indexação.
         """
-        self.client.clear_cache()
-        cities_to_reindex = dict(
-            (code, city)
-            for code, city in MG_PRIORITY_STATIONS.items()
-            if city in self._indexed_cities
-        )
+        self.weather_client.clear_cache()
 
+        cities_to_reindex = set(self._indexed_cities)
         if not cities_to_reindex:
             logger.info("Nenhuma cidade para re-indexar.")
             return self.retriever.chunk_count
@@ -235,7 +223,21 @@ class MeteoRAG:
         self._all_chunks = []
         self._indexed_cities.clear()
 
-        for code, city in cities_to_reindex.items():
-            self.index_city(code, city)
+        for city in cities_to_reindex:
+            self.index_city(city)
 
         return self.retriever.chunk_count
+
+    def _fetch_alerts_safe(self) -> list[dict[str, Any]]:
+        """Busca alertas INMET de forma segura (best-effort).
+
+        Nunca propaga exceções — retorna lista vazia se falhar.
+
+        Returns:
+            Lista de alertas ou ``[]``.
+        """
+        try:
+            return self.inmet_client.get_alerts("MG")
+        except Exception as exc:
+            logger.warning("Falha ao buscar alertas INMET (best-effort): %s", exc)
+            return []

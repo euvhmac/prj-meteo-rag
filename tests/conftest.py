@@ -1,6 +1,6 @@
 """Fixtures globais para testes do MeteoRAG.
 
-Contém dados mock realistas da API INMET para testes unitários,
+Contém dados mock realistas da API INMET e Open-Meteo para testes unitários,
 sem necessidade de conexão HTTP real.
 """
 
@@ -328,3 +328,83 @@ def sample_chunks() -> list[dict[str, Any]]:
             },
         },
     ]
+
+
+# ══════════════════════════════════════════════════════════
+# Open-Meteo API Response
+# ══════════════════════════════════════════════════════════
+
+
+@pytest.fixture()
+def sample_openmeteo_response() -> dict[str, Any]:
+    """Resposta mockada da API Open-Meteo (Forecast com past_days=3)."""
+    return {
+        "latitude": -21.75,
+        "longitude": -43.375,
+        "generationtime_ms": 1.5,
+        "utc_offset_seconds": -10800,
+        "timezone": "America/Sao_Paulo",
+        "timezone_abbreviation": "-03",
+        "elevation": 940.0,
+        "current": {
+            "time": "2024-01-18T14:00",
+            "precipitation": 0.0,
+            "temperature_2m": 25.3,
+            "relative_humidity_2m": 68,
+            "wind_speed_10m": 12.5,
+            "weather_code": 2,
+            "surface_pressure": 912.0,
+        },
+        "hourly": {
+            "time": [
+                "2024-01-15T00:00",
+                "2024-01-15T01:00",
+                "2024-01-15T12:00",
+                "2024-01-15T13:00",
+                "2024-01-16T00:00",
+                "2024-01-16T12:00",
+                "2024-01-17T00:00",
+                "2024-01-17T12:00",
+                "2024-01-18T00:00",
+                "2024-01-18T12:00",
+            ],
+            "precipitation": [0.0, 2.4, 15.6, 0.0, 0.0, 0.0, 1.2, 8.4, 0.0, 0.0],
+            "temperature_2m": [
+                19.5,
+                19.0,
+                24.5,
+                23.1,
+                18.2,
+                26.8,
+                20.1,
+                22.3,
+                21.0,
+                25.3,
+            ],
+            "relative_humidity_2m": [85, 88, 72, 75, 90, 65, 82, 78, 80, 68],
+            "wind_speed_10m": [5.0, 4.2, 12.0, 15.5, 3.6, 8.1, 6.2, 18.0, 4.0, 12.5],
+            "wind_direction_10m": [180, 190, 270, 280, 150, 200, 160, 300, 170, 250],
+            "surface_pressure": [
+                912.5,
+                912.3,
+                910.2,
+                911.0,
+                913.0,
+                912.8,
+                911.5,
+                910.0,
+                912.0,
+                912.0,
+            ],
+            "weather_code": [0, 51, 65, 61, 0, 0, 51, 82, 0, 2],
+        },
+        "daily": {
+            "time": ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18"],
+            "precipitation_sum": [18.0, 0.0, 9.6, 0.0],
+            "precipitation_hours": [3.0, 0.0, 2.0, 0.0],
+            "temperature_2m_max": [24.5, 26.8, 22.3, 25.3],
+            "temperature_2m_min": [19.0, 18.2, 20.1, 21.0],
+            "wind_speed_10m_max": [15.5, 8.1, 18.0, 12.5],
+            "weather_code": [65, 0, 82, 2],
+        },
+    }
