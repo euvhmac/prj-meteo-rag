@@ -1,1 +1,30 @@
-# Placeholder — será implementado na Sprint 3
+# MeteoRAG — ConfigMap (variáveis não-sensíveis)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: meteorag-config
+  namespace: meteorag
+  labels:
+    app: meteorag
+    component: config
+data:
+  # ── INMET (alertas — best-effort) ──────────────────────
+  METEORAG_INMET_BASE_URL: "https://apitempo.inmet.gov.br"
+  METEORAG_INMET_CACHE_TTL_SECONDS: "1800"
+  METEORAG_INMET_RETRY_MAX: "3"
+  METEORAG_INMET_TIMEOUT_SECONDS: "20"
+  # ── Open-Meteo (fonte principal) ───────────────────────
+  METEORAG_OPENMETEO_TIMEOUT_SECONDS: "20"
+  METEORAG_DEFAULT_DAYS_BACK: "7"
+  # ── LLM ────────────────────────────────────────────────
+  METEORAG_LLM_MODEL: "claude-haiku-4-5-20251001"
+  METEORAG_LLM_MAX_TOKENS: "8192"
+  METEORAG_LLM_TIMEOUT_SECONDS: "30"
+  # ── RAG ────────────────────────────────────────────────
+  METEORAG_RAG_TOP_K: "8"
+  METEORAG_RAG_MAX_CHUNK_SIZE: "512"
+  METEORAG_RAG_MAX_HOURLY_CHUNKS: "96"
+  # ── APP ────────────────────────────────────────────────
+  METEORAG_APP_PORT: "8501"
+  METEORAG_LOG_LEVEL: "INFO"
+  METEORAG_ENVIRONMENT: "production"

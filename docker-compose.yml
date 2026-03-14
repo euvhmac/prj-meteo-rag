@@ -1,5 +1,5 @@
 # MeteoRAG — Docker Compose (Desenvolvimento Local)
-version: "3.9"
+# Uso: docker compose up --build
 
 services:
   meteorag:
@@ -8,15 +8,19 @@ services:
       dockerfile: Dockerfile
     container_name: meteorag-dev
     ports:
-      - "8501:8501"
+      - "${METEORAG_APP_PORT:-8501}:8501"
     env_file:
       - .env
+    environment:
+      - METEORAG_ENVIRONMENT=development
+      - METEORAG_LOG_LEVEL=DEBUG
+      - PYTHONPATH=/app/src
     volumes:
-      - ./src:/app/src  # hot reload
+      - ./src:/app/src:ro   # hot reload — código montado read-only
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s

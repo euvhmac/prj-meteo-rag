@@ -1,1 +1,65 @@
-# Placeholder — será implementado na Sprint 3
+# MeteoRAG — Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meteorag
+  namespace: meteorag
+  labels:
+    app: meteorag
+    component: web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: meteorag
+  template:
+    metadata:
+      labels:
+        app: meteorag
+        component: web
+    spec:
+      containers:
+        - name: meteorag
+          image: ghcr.io/victorliquiddata/meteorag:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8501
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: meteorag-config
+            - secretRef:
+                name: meteorag-secrets
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /_stcore/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 12
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30

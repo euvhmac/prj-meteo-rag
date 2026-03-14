@@ -1,1 +1,18 @@
-# Placeholder — será implementado na Sprint 3
+# MeteoRAG — Service (ClusterIP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: meteorag
+  namespace: meteorag
+  labels:
+    app: meteorag
+    component: web
+spec:
+  type: ClusterIP
+  selector:
+    app: meteorag
+  ports:
+    - name: http
+      port: 8501
+      targetPort: http
+      protocol: TCP

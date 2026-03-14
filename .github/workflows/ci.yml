@@ -6,6 +6,10 @@ on:
   push:
     branches: [develop]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
@@ -39,7 +43,19 @@ jobs:
 
       - name: Tests — pytest + coverage
         run: |
-          pytest tests/unit/ -v --cov=src/meteorag --cov-report=term-missing --cov-fail-under=80
+          pytest tests/unit/ -v \
+            --cov=src/meteorag \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 14
 
   docker-build:
     runs-on: ubuntu-latest
@@ -48,5 +64,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build Docker image
-        run: docker build -t meteorag:ci-test .
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: meteorag:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Inspect image size
+        run: |
+          docker images meteorag:ci-test --format "{{.Size}}"
+          SIZE=$(docker images meteorag:ci-test --format "{{.Size}}")
+          echo "📦 Tamanho da imagem: $SIZE"

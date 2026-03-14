@@ -1,4 +1,4 @@
-name: Data Quality — INMET API Check
+name: Data Quality — API Health Check
 
 on:
   schedule:
@@ -6,32 +6,62 @@ on:
   workflow_dispatch:        # permite execução manual
 
 jobs:
-  check-inmet:
+  check-apis:
     runs-on: ubuntu-latest
     steps:
-      - name: Check INMET API — Estações
+      # ── Open-Meteo (fonte principal) ──────────────────
+      - name: Check Open-Meteo API — Forecast
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://apitempo.inmet.gov.br/estacoes/T)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://api.open-meteo.com/v1/forecast?latitude=-21.76&longitude=-43.35&current=temperature_2m")
+          echo "Open-Meteo Forecast → HTTP $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "::error::Open-Meteo Forecast retornou HTTP $STATUS"
+            exit 1
+          fi
+
+      - name: Check Open-Meteo API — Archive
+        run: |
+          START=$(date -d "-3 day" +%Y-%m-%d)
+          END=$(date -d "-1 day" +%Y-%m-%d)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://archive-api.open-meteo.com/v1/archive?latitude=-21.76&longitude=-43.35&start_date=$START&end_date=$END&daily=temperature_2m_max")
+          echo "Open-Meteo Archive → HTTP $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "::warning::Open-Meteo Archive retornou HTTP $STATUS"
+          fi
+
+      # ── INMET (alertas — best-effort) ─────────────────
+      - name: Check INMET API — Estações
+        continue-on-error: true
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            https://apitempo.inmet.gov.br/estacoes/T)
           echo "INMET /estacoes/T → HTTP $STATUS"
           if [ "$STATUS" -ne 200 ]; then
             echo "::warning::API INMET retornou HTTP $STATUS para /estacoes/T"
           fi
 
-      - name: Check INMET API — Dados horários (A518)
-        run: |
-          START=$(date -d "-1 day" +%Y-%m-%d)
-          END=$(date +%Y-%m-%d)
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://apitempo.inmet.gov.br/estacao/$START/$END/A518")
-          echo "INMET /estacao A518 → HTTP $STATUS"
-          if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 204 ]; then
-            echo "::warning::API INMET retornou HTTP $STATUS para dados horários A518"
-          fi
-
       - name: Check INMET API — Alertas MG
+        continue-on-error: true
         run: |
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://apitempo.inmet.gov.br/alertas/MG/1)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 \
+            https://apitempo.inmet.gov.br/alertas/MG/1)
           echo "INMET /alertas/MG → HTTP $STATUS"
-          # 204 é OK (sem alertas vigentes)
+          # 204 é OK (sem alertas vigentes), 404 é INMET fora
           if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 204 ]; then
             echo "::warning::API INMET retornou HTTP $STATUS para alertas MG"
           fi
+
+      # ── Resumo ────────────────────────────────────────
+      - name: Summary
+        if: always()
+        run: |
+          echo "### 📊 Data Quality Check" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| API | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Open-Meteo (principal) | Verificado |" >> $GITHUB_STEP_SUMMARY
+          echo "| INMET (alertas) | Best-effort |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Executado em $(date -u +'%Y-%m-%d %H:%M UTC')_" >> $GITHUB_STEP_SUMMARY
