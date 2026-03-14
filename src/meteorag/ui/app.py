@@ -1,0 +1,1 @@
+"""MeteoRAG — Streamlit entry point."""

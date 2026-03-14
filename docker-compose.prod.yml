@@ -1,0 +1,26 @@
+# MeteoRAG — Docker Compose (Produção)
+version: "3.9"
+
+services:
+  meteorag:
+    image: ghcr.io/meteorag/meteorag:latest
+    container_name: meteorag-prod
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          cpus: "0.25"
+          memory: 256M

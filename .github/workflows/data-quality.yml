@@ -1,0 +1,37 @@
+name: Data Quality — INMET API Check
+
+on:
+  schedule:
+    - cron: "0 12 * * *"   # 12:00 UTC diariamente
+  workflow_dispatch:        # permite execução manual
+
+jobs:
+  check-inmet:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check INMET API — Estações
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://apitempo.inmet.gov.br/estacoes/T)
+          echo "INMET /estacoes/T → HTTP $STATUS"
+          if [ "$STATUS" -ne 200 ]; then
+            echo "::warning::API INMET retornou HTTP $STATUS para /estacoes/T"
+          fi
+
+      - name: Check INMET API — Dados horários (A518)
+        run: |
+          START=$(date -d "-1 day" +%Y-%m-%d)
+          END=$(date +%Y-%m-%d)
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" "https://apitempo.inmet.gov.br/estacao/$START/$END/A518")
+          echo "INMET /estacao A518 → HTTP $STATUS"
+          if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 204 ]; then
+            echo "::warning::API INMET retornou HTTP $STATUS para dados horários A518"
+          fi
+
+      - name: Check INMET API — Alertas MG
+        run: |
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://apitempo.inmet.gov.br/alertas/MG/1)
+          echo "INMET /alertas/MG → HTTP $STATUS"
+          # 204 é OK (sem alertas vigentes)
+          if [ "$STATUS" -ne 200 ] && [ "$STATUS" -ne 204 ]; then
+            echo "::warning::API INMET retornou HTTP $STATUS para alertas MG"
+          fi

@@ -1,0 +1,52 @@
+name: CI — Lint + Test + Build
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint — Ruff
+        run: ruff check .
+
+      - name: Format check — Black
+        run: black --check .
+
+      - name: Type check — mypy
+        run: mypy src/meteorag/
+
+      - name: Tests — pytest + coverage
+        run: |
+          pytest tests/unit/ -v --cov=src/meteorag --cov-report=term-missing --cov-fail-under=80
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t meteorag:ci-test .

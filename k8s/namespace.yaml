@@ -1,0 +1,7 @@
+# MeteoRAG — Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: meteorag
+  labels:
+    app: meteorag

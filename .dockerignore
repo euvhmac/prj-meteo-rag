@@ -1,0 +1,41 @@
+# ── Git ──────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Tests & Docs ─────────────────────────────────────────
+tests/
+docs/
+*.md
+!README.md
+
+# ── Python cache ─────────────────────────────────────────
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# ── Environment ──────────────────────────────────────────
+.env
+.env.*
+.venv/
+venv/
+
+# ── IDE ──────────────────────────────────────────────────
+.vscode/
+.idea/
+
+# ── Docker ───────────────────────────────────────────────
+docker-compose*.yml
+Dockerfile
+
+# ── CI/CD & K8s ──────────────────────────────────────────
+.github/
+k8s/
+helm/
+monitoring/
+
+# ── OS ───────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
