@@ -15,6 +15,7 @@ from typing import Any
 from meteorag.api.inmet_client import INMETClient
 from meteorag.api.openmeteo_client import MG_CITIES, OpenMeteoClient
 from meteorag.config import Settings
+from meteorag.metrics import RAG_CHUNKS_TOTAL, RAG_INDEXED_CITIES
 from meteorag.rag.chunker import MeteoChunker
 from meteorag.rag.retriever import TFIDFRetriever
 
@@ -115,6 +116,10 @@ class MeteoRAG:
 
         # Reconstrói índice TF-IDF com todos os chunks
         total = self.retriever.index(self._all_chunks)
+
+        # Atualiza métricas Prometheus
+        RAG_CHUNKS_TOTAL.set(total)
+        RAG_INDEXED_CITIES.set(len(self._indexed_cities))
 
         logger.info(
             "Indexação completa: %d novos chunks para %s. Total no índice: %d",

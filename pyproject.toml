@@ -67,6 +67,8 @@ module = [
     "streamlit.*",
     "plotly.*",
     "sklearn.*",
+    "prometheus_client.*",
+    "structlog.*",
 ]
 ignore_missing_imports = true
 

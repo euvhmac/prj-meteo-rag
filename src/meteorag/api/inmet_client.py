@@ -8,6 +8,7 @@ e normalização de valores inválidos (-9999, 9999, null, "").
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from datetime import date, timedelta
 from typing import Any
@@ -15,8 +16,80 @@ from typing import Any
 import requests
 
 from meteorag.config import Settings
+from meteorag.metrics import INMET_LATENCY_SECONDS, INMET_REQUESTS_TOTAL
 
 logger = logging.getLogger(__name__)
+
+# ═══════════════════════════════════════════════════════════
+# Circuit Breaker
+# ═══════════════════════════════════════════════════════════
+
+_CB_FAILURE_THRESHOLD: int = 5
+"""Número de falhas consecutivas para abrir o circuit breaker."""
+
+_CB_COOLDOWN_SECONDS: int = 300  # 5 minutos
+"""Tempo de cooldown antes de tentar reconectar."""
+
+
+class _CircuitBreaker:
+    """Circuit breaker simples para a API INMET.
+
+    Após ``_CB_FAILURE_THRESHOLD`` falhas consecutivas, entra em estado
+    *open* por ``_CB_COOLDOWN_SECONDS``. Após o cooldown, permite uma
+    tentativa (*half-open*). Se sucesso, volta a *closed*.
+
+    Thread-safe via lock.
+    """
+
+    __slots__ = ("_consecutive_failures", "_last_failure_time", "_lock", "_state")
+
+    def __init__(self) -> None:
+        self._consecutive_failures: int = 0
+        self._last_failure_time: float = 0.0
+        self._state: str = "closed"  # closed | open | half-open
+        self._lock = threading.Lock()
+
+    @property
+    def state(self) -> str:
+        """Estado atual do circuit breaker."""
+        with self._lock:
+            if self._state == "open":
+                elapsed = time.monotonic() - self._last_failure_time
+                if elapsed >= _CB_COOLDOWN_SECONDS:
+                    self._state = "half-open"
+            return self._state
+
+    @property
+    def is_open(self) -> bool:
+        """True se o circuito está aberto (API indisponível)."""
+        return self.state == "open"
+
+    def record_success(self) -> None:
+        """Registra sucesso — reseta contador e fecha o circuito."""
+        with self._lock:
+            self._consecutive_failures = 0
+            self._state = "closed"
+
+    def record_failure(self) -> None:
+        """Registra falha — incrementa contador e possivelmente abre o circuito."""
+        with self._lock:
+            self._consecutive_failures += 1
+            self._last_failure_time = time.monotonic()
+            if self._consecutive_failures >= _CB_FAILURE_THRESHOLD:
+                self._state = "open"
+                logger.warning(
+                    "Circuit breaker OPEN: %d falhas consecutivas. " "Cooldown de %ds.",
+                    self._consecutive_failures,
+                    _CB_COOLDOWN_SECONDS,
+                )
+
+    def reset(self) -> None:
+        """Reseta o circuit breaker para o estado inicial."""
+        with self._lock:
+            self._consecutive_failures = 0
+            self._last_failure_time = 0.0
+            self._state = "closed"
+
 
 # ═══════════════════════════════════════════════════════════
 # Estações prioritárias da Zona da Mata e região
@@ -176,6 +249,9 @@ class INMETClient:
         >>> mg = client.get_mg_stations()
     """
 
+    # Circuit breaker compartilhado entre instâncias
+    _circuit_breaker: _CircuitBreaker = _CircuitBreaker()
+
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or Settings()
         self.base_url = self._settings.inmet_base_url.rstrip("/")
@@ -185,10 +261,18 @@ class INMETClient:
         self._cache: dict[str, _CacheEntry] = {}
         self._session = requests.Session()
 
+    @property
+    def circuit_breaker_state(self) -> str:
+        """Estado atual do circuit breaker (closed, open, half-open)."""
+        return self._circuit_breaker.state
+
     # ── HTTP com retry ────────────────────────────────────
 
     def _request(self, path: str) -> Any:
-        """Executa GET com retry e backoff exponencial.
+        """Executa GET com retry, backoff exponencial, circuit breaker e métricas.
+
+        Se o circuit breaker estiver aberto, retorna dados do cache
+        (se disponíveis) ou lista vazia sem fazer requisição.
 
         Args:
             path: Caminho relativo à base URL (ex: ``/estacoes/T``).
@@ -204,6 +288,20 @@ class INMETClient:
             logger.debug("Cache hit: %s", url)
             return cached.data
 
+        # Circuit breaker — se aberto, serve cache expirado ou []
+        if self._circuit_breaker.is_open:
+            logger.warning(
+                "Circuit breaker OPEN — pulando request: %s",
+                url,
+            )
+            INMET_REQUESTS_TOTAL.labels(status="circuit_open").inc()
+            # Modo offline: serve cache expirado se disponível
+            if cached is not None:
+                logger.info("Servindo dados expirados do cache (modo offline): %s", url)
+                return cached.data
+            return []
+
+        start_time = time.monotonic()
         last_exception: Exception | None = None
         for attempt in range(1, self.max_retries + 1):
             try:
@@ -212,12 +310,21 @@ class INMETClient:
 
                 # HTTP 204 — sem dados
                 if resp.status_code == 204:
-                    logger.info("HTTP 204 (sem dados): %s", url)
+                    elapsed = time.monotonic() - start_time
+                    INMET_REQUESTS_TOTAL.labels(status="success").inc()
+                    INMET_LATENCY_SECONDS.observe(elapsed)
+                    self._circuit_breaker.record_success()
+                    logger.info("HTTP 204 (sem dados): %s (%.2fs)", url, elapsed)
                     self._cache[url] = _CacheEntry([], self.cache_ttl)
                     return []
 
                 resp.raise_for_status()
                 data = resp.json()
+
+                elapsed = time.monotonic() - start_time
+                INMET_REQUESTS_TOTAL.labels(status="success").inc()
+                INMET_LATENCY_SECONDS.observe(elapsed)
+                self._circuit_breaker.record_success()
 
                 # Armazena no cache
                 self._cache[url] = _CacheEntry(data, self.cache_ttl)
@@ -259,7 +366,19 @@ class INMETClient:
                 logger.debug("Backoff %ds antes do retry", backoff)
                 time.sleep(backoff)
 
-        logger.error("Todas as tentativas falharam para %s: %s", url, last_exception)
+        elapsed = time.monotonic() - start_time
+        INMET_REQUESTS_TOTAL.labels(status="error").inc()
+        INMET_LATENCY_SECONDS.observe(elapsed)
+        self._circuit_breaker.record_failure()
+
+        logger.error(
+            "Todas as tentativas falharam para %s: %s (%.2fs)", url, last_exception, elapsed
+        )
+
+        # Modo offline: serve cache expirado se disponível
+        if cached is not None:
+            logger.info("Servindo dados expirados do cache (fallback): %s", url)
+            return cached.data
         return []
 
     # ── Estações ──────────────────────────────────────────

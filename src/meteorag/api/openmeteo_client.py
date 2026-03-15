@@ -21,6 +21,7 @@ from typing import Any, ClassVar
 import requests
 
 from meteorag.config import Settings
+from meteorag.metrics import OPENMETEO_LATENCY_SECONDS, OPENMETEO_REQUESTS_TOTAL
 
 logger = logging.getLogger(__name__)
 
@@ -310,20 +311,28 @@ class OpenMeteoClient:
             "cell_selection": "land",
         }
 
+        start_time = time.monotonic()
         try:
             response = self._session.get(self.FORECAST_URL, params=params, timeout=self.timeout)
             response.raise_for_status()
             data: dict[str, Any] = response.json()
             self._set_cached(cache_key, data)
+            elapsed = time.monotonic() - start_time
+            OPENMETEO_REQUESTS_TOTAL.labels(status="success").inc()
+            OPENMETEO_LATENCY_SECONDS.observe(elapsed)
             logger.info(
-                "Open-Meteo dados recebidos para %s: %d bytes",
+                "Open-Meteo dados recebidos para %s: %d bytes (%.2fs)",
                 city,
                 len(response.text),
+                elapsed,
             )
             return data
 
         except requests.exceptions.RequestException as exc:
-            logger.error("Open-Meteo request falhou para %s: %s", city, exc)
+            elapsed = time.monotonic() - start_time
+            OPENMETEO_REQUESTS_TOTAL.labels(status="error").inc()
+            OPENMETEO_LATENCY_SECONDS.observe(elapsed)
+            logger.error("Open-Meteo request falhou para %s: %s (%.2fs)", city, exc, elapsed)
             return {}
 
     def get_daily_summaries(

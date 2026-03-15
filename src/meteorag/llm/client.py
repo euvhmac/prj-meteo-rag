@@ -8,12 +8,14 @@ limitação de histórico e tratamento de erros robusto.
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Generator
 from typing import Any
 
 from anthropic import Anthropic, APIError, APITimeoutError
 
 from meteorag.config import Settings
+from meteorag.metrics import CHAT_MESSAGES_TOTAL, LLM_LATENCY_SECONDS, LLM_REQUESTS_TOTAL
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +205,7 @@ def ask(
     llm = client or get_client(s)
 
     messages = build_messages(query, context, history)
+    start_time = time.monotonic()
 
     try:
         logger.info("LLM ask (non-streaming): model=%s, messages=%d", s.llm_model, len(messages))
@@ -215,17 +218,35 @@ def ask(
         )
 
         text = response.content[0].text  # type: ignore[union-attr]
-        logger.info("LLM response: %d chars", len(text))
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="success").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        CHAT_MESSAGES_TOTAL.inc()
+        logger.info("LLM response: %d chars (%.2fs)", len(text), elapsed)
         return str(text)
 
     except APITimeoutError:
-        logger.error("LLM timeout após %ds", s.llm_timeout_seconds)
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="timeout").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        logger.error("LLM timeout após %ds (%.2fs)", s.llm_timeout_seconds, elapsed)
         return FALLBACK_MESSAGE
     except APIError as exc:
-        logger.error("LLM API error: %s (status=%s)", exc.message, getattr(exc, "status_code", "?"))
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="error").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        logger.error(
+            "LLM API error: %s (status=%s, %.2fs)",
+            exc.message,
+            getattr(exc, "status_code", "?"),
+            elapsed,
+        )
         return FALLBACK_MESSAGE
     except Exception as exc:
-        logger.error("LLM unexpected error: %s", exc)
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="error").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        logger.error("LLM unexpected error: %s (%.2fs)", exc, elapsed)
         return FALLBACK_MESSAGE
 
 
@@ -255,6 +276,7 @@ def ask_stream(
     llm = client or get_client(s)
 
     messages = build_messages(query, context, history)
+    start_time = time.monotonic()
 
     try:
         logger.info("LLM ask_stream: model=%s, messages=%d", s.llm_model, len(messages))
@@ -270,14 +292,27 @@ def ask_stream(
                 full_text += text
                 yield text
 
-            logger.info("LLM stream complete: %d chars", len(full_text))
+            elapsed = time.monotonic() - start_time
+            LLM_REQUESTS_TOTAL.labels(status="success").inc()
+            LLM_LATENCY_SECONDS.observe(elapsed)
+            CHAT_MESSAGES_TOTAL.inc()
+            logger.info("LLM stream complete: %d chars (%.2fs)", len(full_text), elapsed)
 
     except APITimeoutError:
-        logger.error("LLM stream timeout após %ds", s.llm_timeout_seconds)
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="timeout").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        logger.error("LLM stream timeout após %ds (%.2fs)", s.llm_timeout_seconds, elapsed)
         yield FALLBACK_MESSAGE
     except APIError as exc:
-        logger.error("LLM stream API error: %s", exc.message)
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="error").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        logger.error("LLM stream API error: %s (%.2fs)", exc.message, elapsed)
         yield FALLBACK_MESSAGE
     except Exception as exc:
-        logger.error("LLM stream unexpected error: %s", exc)
+        elapsed = time.monotonic() - start_time
+        LLM_REQUESTS_TOTAL.labels(status="error").inc()
+        LLM_LATENCY_SECONDS.observe(elapsed)
+        logger.error("LLM stream unexpected error: %s (%.2fs)", exc, elapsed)
         yield FALLBACK_MESSAGE

@@ -20,6 +20,8 @@ from meteorag.llm.client import (
     get_client,
     trim_history,
 )
+from meteorag.logging import setup_logging
+from meteorag.metrics import start_metrics_server
 from meteorag.rag.pipeline import MeteoRAG
 
 logger = logging.getLogger(__name__)
@@ -198,7 +200,7 @@ def render_sidebar() -> None:
             "Dados: [Open-Meteo](https://open-meteo.com) + [INMET](https://portal.inmet.gov.br)"
         )
         st.caption("LLM: Claude Haiku (Anthropic)")
-        st.caption("v0.2.0 — Sprint 2")
+        st.caption("v0.4.0 — Sprint 4")
 
 
 def _load_data(selected_cities: list[str], days_back: int) -> None:
@@ -635,6 +637,11 @@ def render_tab_debug() -> None:
 
 def main() -> None:
     """Entry point principal do Streamlit."""
+    # Inicializa logging estruturado e servidor de métricas
+    _settings = Settings()
+    setup_logging(level=_settings.log_level, environment=_settings.environment)
+    start_metrics_server(port=8502)
+
     st.set_page_config(
         page_title=PAGE_TITLE,
         page_icon=PAGE_ICON,

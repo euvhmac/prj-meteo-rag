@@ -1,1 +1,131 @@
-# Placeholder — será implementado na Sprint 4
+# MeteoRAG — Prometheus Alerting Rules
+# Deploy: configmap no namespace monitoring do K8s
+
+groups:
+  - name: meteorag.rules
+    rules:
+      # ── INMET API ──────────────────────────────────────
+      - alert: INMETAPIOffline
+        expr: |
+          increase(meteorag_inmet_requests_total{status="error"}[5m]) > 0
+          and
+          increase(meteorag_inmet_requests_total{status="success"}[5m]) == 0
+        for: 5m
+        labels:
+          severity: warning
+          team: meteorag
+        annotations:
+          summary: "API INMET indisponível por mais de 5 minutos"
+          description: |
+            Nenhuma requisição bem-sucedida à API INMET nos últimos 5 minutos.
+            Circuit breaker pode estar ativo. Verificar status em /metrics.
+          runbook_url: "https://github.com/victorliquiddata/meteorag/wiki/runbook-inmet"
+
+      - alert: INMETHighLatency
+        expr: |
+          histogram_quantile(0.95, rate(meteorag_inmet_latency_seconds_bucket[5m])) > 15
+        for: 3m
+        labels:
+          severity: warning
+          team: meteorag
+        annotations:
+          summary: "Latência p95 da API INMET acima de 15s"
+          description: |
+            A latência p95 da API INMET está em {{ $value }}s.
+            Considerar aumentar timeout ou verificar conectividade.
+
+      # ── LLM ────────────────────────────────────────────
+      - alert: LLMHighLatency
+        expr: |
+          histogram_quantile(0.95, rate(meteorag_llm_latency_seconds_bucket[5m])) > 10
+        for: 3m
+        labels:
+          severity: warning
+          team: meteorag
+        annotations:
+          summary: "Latência p95 do LLM acima de 10 segundos"
+          description: |
+            A latência p95 das requisições ao LLM está em {{ $value }}s.
+            Possível degradação do serviço Anthropic ou rede.
+
+      - alert: LLMHighErrorRate
+        expr: |
+          rate(meteorag_llm_requests_total{status=~"error|timeout"}[5m])
+          /
+          rate(meteorag_llm_requests_total[5m]) > 0.25
+        for: 5m
+        labels:
+          severity: critical
+          team: meteorag
+        annotations:
+          summary: "Taxa de erro do LLM acima de 25%"
+          description: |
+            Mais de 25% das requisições ao LLM estão falhando.
+            Verificar API key, conectividade e logs.
+
+      # ── Open-Meteo ─────────────────────────────────────
+      - alert: OpenMeteoHighErrorRate
+        expr: |
+          rate(meteorag_openmeteo_requests_total{status="error"}[10m])
+          /
+          rate(meteorag_openmeteo_requests_total[10m]) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: meteorag
+        annotations:
+          summary: "Taxa de erro da API Open-Meteo acima de 50%"
+          description: |
+            Mais de 50% das requisições ao Open-Meteo estão falhando.
+            API pública pode estar com rate limiting ou instável.
+
+      # ── Infraestrutura ─────────────────────────────────
+      - alert: PodCrashLoopBackOff
+        expr: |
+          kube_pod_container_status_waiting_reason{
+            namespace="meteorag",
+            reason="CrashLoopBackOff"
+          } > 0
+        for: 3m
+        labels:
+          severity: critical
+          team: meteorag
+        annotations:
+          summary: "Pod MeteoRAG em CrashLoopBackOff"
+          description: |
+            Pod {{ $labels.pod }} em namespace meteorag está em CrashLoopBackOff.
+            Verificar logs: kubectl logs -n meteorag {{ $labels.pod }}
+
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_working_set_bytes{
+            namespace="meteorag",
+            container="meteorag"
+          }
+          /
+          container_spec_memory_limit_bytes{
+            namespace="meteorag",
+            container="meteorag"
+          } > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: meteorag
+        annotations:
+          summary: "MeteoRAG usando > 85% da memória alocada"
+          description: |
+            Container usando {{ $value | humanizePercentage }} da memória limite.
+            Considerar ajustar resource limits ou investigar memory leak.
+
+      # ── RAG ────────────────────────────────────────────
+      - alert: RAGNoChunksIndexed
+        expr: meteorag_rag_chunks_total == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: meteorag
+        annotations:
+          summary: "Nenhum chunk indexado no RAG por > 10 minutos"
+          description: |
+            O índice RAG está vazio. Verificar se a indexação inicial
+            falhou ou se as APIs de dados estão indisponíveis.
