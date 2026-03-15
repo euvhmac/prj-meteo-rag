@@ -1,6 +1,6 @@
 [project]
 name = "meteorag"
-version = "0.1.0"
+version = "1.0.0"
 description = "Assistente meteorológico inteligente com RAG + LLM para dados INMET de Minas Gerais"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -66,6 +66,9 @@ mypy_path = "src"
 module = [
     "streamlit.*",
     "plotly.*",
+    "sklearn.*",
+    "prometheus_client.*",
+    "structlog.*",
 ]
 ignore_missing_imports = true
 

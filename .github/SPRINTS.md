@@ -4,7 +4,7 @@
 **Metodologia:** Scrum adaptado (sprints de 1 semana)  
 **Critério de prioridade:** MoSCoW (Must / Should / Could / Won't)  
 **Equipe:** 1 desenvolvedor (Victor) + agente IA (Copilot/Claude)  
-**Total de Sprints:** 5 (MVP em S1–S3, production-ready em S4–S5)
+**Total de Sprints:** 6 (MVP em S1–S3, production-ready em S4–S5, Next.js UI em S6)
 
 ---
 
@@ -118,6 +118,13 @@ Desenvolvedor consegue clonar o repo, criar o `.env` a partir do `.env.example`,
 
 **Critério de aceite da Sprint:**  
 `streamlit run src/meteorag/ui/app.py` abre no browser. É possível carregar dados de JF e fazer uma pergunta recebendo resposta com streaming.
+
+> **Nota de execução (Sprint 2):**  
+> - API INMET ficou indisponível (HTTP 204 em todos os endpoints de dados, 404 em alertas).  
+> - Migração realizada: **Open-Meteo** como fonte principal de dados, INMET apenas para alertas (best-effort).  
+> - LLM migrado de Databricks proxy para **API direta Anthropic** (`claude-haiku-4-5-20251001`).  
+> - Resultado: 193 testes, 93.09% cobertura, app funcional end-to-end.  
+> - Commit: `2edd85e` em `develop`.
 
 ---
 
@@ -241,9 +248,66 @@ App rodando em K8s com HTTPS. Métricas visíveis no Grafana. Rolling update sem
 **Critério de aceite da Sprint:**  
 Projeto público no GitHub com README completo, CI verde, app rodando em produção, documentação completa.
 
+> **Ao final da Sprint 5:**  
+> - Merge `develop` → `main`, criar tag `v1.0.0`  
+> - Criar branch `release/streamlit` a partir de `v1.0.0` (versão preservada)  
+> - Deploy do backend Python (Streamlit + RAG) em Railway / Render / K8s
+
 ---
 
-## Backlog (Pós-MVP / Versão 2.0)
+## Sprint 6 — Next.js Frontend + FastAPI Backend
+**Duração:** 5 dias | **Objetivo:** UI moderna de chatbot com deploy na Vercel  
+**Branch:** `feature/nextjs-frontend` (a partir de `develop`)
+
+### Épico: FastAPI Backend (API REST)
+
+| ID | Item | Tipo | Prioridade | DoD Específico |
+|----|------|------|-----------|----------------|
+| S6-01 | Criar `src/meteorag/api/server.py` — FastAPI app com CORS configurado | feat | Must | `uvicorn meteorag.api.server:app` sobe na porta 8000 |
+| S6-02 | `POST /api/chat` — recebe query + history, retorna resposta via SSE streaming | feat | Must | Streaming funciona com `EventSource` no browser |
+| S6-03 | `GET /api/weather/{city}` — retorna dados meteorológicos (daily + current) | feat | Must | JSON com sumários diários + condição atual da cidade |
+| S6-04 | `GET /api/alerts` — retorna alertas INMET ativos (best-effort) | feat | Must | Lista de alertas ou `[]` se INMET indisponível |
+| S6-05 | `GET /api/cities` — retorna lista de cidades monitoradas com coordenadas | feat | Should | JSON com `MG_CITIES` completo |
+| S6-06 | `GET /api/health` — health check para Vercel/K8s | feat | Must | Retorna `{"status": "ok"}` com status 200 |
+| S6-07 | Startup event — indexa cidades prioritárias ao iniciar servidor | feat | Must | RAG pipeline pronto para queries ao subir |
+| S6-08 | Testes unitários para FastAPI com `httpx` + `TestClient` | test | Must | Cobertura ≥ 80% dos endpoints |
+
+### Épico: Next.js Frontend (Chat UI)
+
+| ID | Item | Tipo | Prioridade | DoD Específico |
+|----|------|------|-----------|----------------|
+| S6-09 | Inicializar `frontend/` com Next.js 14+ App Router + TypeScript + Tailwind | chore | Must | `npm run dev` sobe na porta 3000 |
+| S6-10 | Layout base — header com logo MeteoRAG + nav + footer | feat | Must | Layout responsivo mobile-first |
+| S6-11 | Página principal — chat interface com input, mensagens, streaming | feat | Must | Mensagens aparecem progressivamente via SSE |
+| S6-12 | Componente `ChatMessage` — balões distintos user/assistant com markdown | feat | Must | Suporte a **bold**, listas, código inline |
+| S6-13 | Componente `WeatherCard` — card com condição atual de cada cidade | feat | Should | Ícone WMO, temperatura, chuva, umidade |
+| S6-14 | Componente `AlertBanner` — banner de alertas INMET no topo | feat | Must | Cores por severidade; dismissable |
+| S6-15 | Perguntas sugeridas — chips clicáveis abaixo do input | feat | Should | Click popula e envia a pergunta |
+| S6-16 | Dark mode toggle | feat | Could | Persiste preferência em localStorage |
+| S6-17 | Botão "Modo Avançado (Streamlit)" — link externo para o Streamlit | feat | Must | Abre Streamlit em nova aba |
+| S6-18 | Página "Sobre" — fontes de dados, limitações, créditos | feat | Should | Rota `/about` com informações do projeto |
+| S6-19 | SEO — meta tags, Open Graph, favicon | chore | Should | Preview correto ao compartilhar link |
+| S6-20 | Deploy na Vercel com env vars configuradas | chore | Must | `https://meteorag.vercel.app` funcional |
+
+### Épico: Integração & Infra
+
+| ID | Item | Tipo | Prioridade | DoD Específico |
+|----|------|------|-----------|----------------|
+| S6-21 | Atualizar Dockerfile para expor FastAPI (porta 8000) + Streamlit (porta 8501) | chore | Must | `docker compose up` sobe ambos os serviços |
+| S6-22 | Atualizar Helm chart — novo Service para FastAPI | chore | Must | `helm template` inclui service na porta 8000 |
+| S6-23 | CORS configurado para domínio Vercel + localhost dev | chore | Must | Frontend Vercel consegue chamar backend sem erro CORS |
+| S6-24 | Atualizar CI — lint + test do frontend (ESLint + Jest/Vitest) | ci | Should | CI roda `npm run lint` e `npm test` no frontend |
+
+**Critério de aceite da Sprint:**  
+Chat funcional em `https://meteorag.vercel.app` conectando ao backend Python. Botão de switch para Streamlit funcionando. Deploy automatizado.
+
+> **Ao final da Sprint 6:**  
+> - Merge `feature/nextjs-frontend` → `develop` → `main`, criar tag `v2.0.0`  
+> - Deploy: Vercel (Next.js) + Railway/K8s (Python backend com FastAPI + Streamlit)
+
+---
+
+## Backlog (Pós-MVP / Versão 2.0+)
 
 | ID | Item | Prioridade | Observação |
 |----|------|-----------|------------|
@@ -255,6 +319,9 @@ Projeto público no GitHub com README completo, CI verde, app rodando em produç
 | BKL-06 | Histórico persistente de conversas (PostgreSQL) | Could | Requer PVC no K8s |
 | BKL-07 | Fine-tuning de prompt para terminologia específica Defesa Civil | Won't | Fora do escopo MVP |
 | BKL-08 | Suporte a dados GOES-16 (imagens de satélite) | Won't | Complexidade alta, escopo diferente |
+| BKL-09 | PWA — instalar MeteoRAG como app no celular | Could | Service worker + manifest.json no Next.js |
+| BKL-10 | WebSocket para atualizações em tempo real | Could | Push de alertas sem polling |
+| BKL-11 | i18n no frontend Next.js (PT-BR / EN) | Could | `next-intl` ou similar |
 
 ---
 
@@ -265,15 +332,46 @@ Sprint 0 (1-2d)    Sprint 1 (5d)         Sprint 2 (5d)
 ├─ Setup Repo      ├─ INMET Client        ├─ LLM Client
 ├─ Config/Env      ├─ RAG Chunker         ├─ Streamlit UI
 ├─ CI base         ├─ TF-IDF Retriever    ├─ Chat streaming
-└─ Templates       └─ Unit Tests          └─ Gráficos Plotly
+└─ Templates       ├─ Open-Meteo Client   └─ Gráficos Plotly
+                   └─ Unit Tests           
                                            
 Sprint 3 (5d)          Sprint 4 (5d)         Sprint 5 (5d)
 ├─ Dockerfile          ├─ Helm Charts        ├─ Testes finais
 ├─ docker-compose      ├─ Prometheus         ├─ Documentação
 ├─ GitHub Actions CI   ├─ Grafana Dashboard  ├─ Launch público
 ├─ K8s base            ├─ Circuit breaker    └─ README final
-└─ CD pipeline         └─ Rolling update
+└─ CD pipeline         └─ Rolling update        │
+                                                 └─→ tag v1.0.0
+                                                     branch release/streamlit
+
+Sprint 6 (5d)
+├─ FastAPI endpoints
+├─ Next.js App Router
+├─ Chat UI (Tailwind)
+├─ Vercel deploy
+├─ Switch Streamlit
+└─→ tag v2.0.0
 ```
+
+---
+
+## Estratégia de Branches
+
+```
+develop ─── S3 ─── S4 ─── S5 ──┬── merge → main → tag v1.0.0
+                                │       │
+                                │       └─→ release/streamlit (preservada)
+                                │
+                                └── feature/nextjs-frontend (S6)
+                                        │
+                                        └── merge → main → tag v2.0.0
+```
+
+| Tag | Conteúdo | Deploy |
+|-----|----------|--------|
+| `v1.0.0` | Backend Python + Streamlit UI | K8s / Railway |
+| `v2.0.0` | Backend Python + FastAPI + Next.js | K8s (backend) + Vercel (frontend) |
+| `release/streamlit` | Versão Streamlit-only preservada | Pode rodar standalone |
 
 ---
 

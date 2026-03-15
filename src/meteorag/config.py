@@ -37,19 +37,19 @@ class Settings(BaseSettings):
         description="URL base opcional (ex: proxy Databricks).",
     )
     llm_model: str = Field(
-        default="claude-haiku-4-5",
-        description="Modelo LLM padrão.",
+        default="claude-haiku-4-5-20251001",
+        description="Modelo LLM padrão (Anthropic Claude Haiku).",
     )
     llm_max_tokens: int = Field(
-        default=1024,
+        default=8192,
         ge=1,
-        le=4096,
+        le=16384,
         description="Número máximo de tokens na resposta do LLM.",
     )
     llm_timeout_seconds: int = Field(
         default=30,
         ge=5,
-        le=120,
+        le=300,
         description="Timeout em segundos para chamadas ao LLM.",
     )
 
@@ -79,7 +79,15 @@ class Settings(BaseSettings):
         default=7,
         ge=1,
         le=30,
-        description="Número de dias retroativos para buscar dados INMET.",
+        description="Número de dias retroativos para buscar dados.",
+    )
+
+    # ── Open-Meteo ───────────────────────────────────────
+    openmeteo_timeout_seconds: int = Field(
+        default=20,
+        ge=5,
+        le=60,
+        description="Timeout em segundos para requisições à API Open-Meteo.",
     )
 
     # ── RAG ──────────────────────────────────────────────

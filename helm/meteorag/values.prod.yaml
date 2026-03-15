@@ -1,1 +1,39 @@
-# Placeholder — será implementado na Sprint 4
+# ═══════════════════════════════════════════════════════════
+# MeteoRAG — Helm Values (produção)
+# Overrides para production — sem secrets
+# Uso: helm upgrade --install meteorag helm/meteorag/ -f helm/meteorag/values.prod.yaml
+# ═══════════════════════════════════════════════════════════
+
+replicaCount: 2
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 1Gi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+
+ingress:
+  enabled: true
+  className: nginx
+  host: meteorag.example.com
+  tls:
+    enabled: true
+    secretName: meteorag-tls
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+
+metrics:
+  enabled: true
+  port: 8502
+
+config:
+  METEORAG_LOG_LEVEL: "INFO"
+  METEORAG_ENVIRONMENT: "production"

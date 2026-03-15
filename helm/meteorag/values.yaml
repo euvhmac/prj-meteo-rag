@@ -1,1 +1,103 @@
-# Placeholder — será implementado na Sprint 4
+# ═══════════════════════════════════════════════════════════
+# MeteoRAG — Helm Values (defaults seguros)
+# Sem secrets — valores sensíveis injetados via --set ou sealed secrets
+# ═══════════════════════════════════════════════════════════
+
+# ── Imagem ───────────────────────────────────────────────
+image:
+  repository: ghcr.io/victorliquiddata/meteorag
+  tag: latest                    # Sobrescrito pelo CD pipeline com SHA
+  pullPolicy: Always
+
+# ── Réplicas ─────────────────────────────────────────────
+replicaCount: 1
+
+# ── Service ──────────────────────────────────────────────
+service:
+  type: ClusterIP
+  port: 8501                     # Porta do Streamlit
+
+# ── Ingress ──────────────────────────────────────────────
+ingress:
+  enabled: false
+  className: nginx
+  host: meteorag.example.com
+  tls:
+    enabled: false
+    secretName: meteorag-tls
+  annotations: {}
+
+# ── Resources ────────────────────────────────────────────
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# ── HPA ──────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 70
+
+# ── Probes ───────────────────────────────────────────────
+probes:
+  liveness:
+    path: /_stcore/health
+    initialDelaySeconds: 30
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readiness:
+    path: /_stcore/health
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    path: /_stcore/health
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 12
+
+# ── Rolling Update ───────────────────────────────────────
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxUnavailable: 0            # Zero downtime
+    maxSurge: 1
+
+# ── PodDisruptionBudget ──────────────────────────────────
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# ── Metrics ──────────────────────────────────────────────
+metrics:
+  enabled: false                 # Habilitar quando prometheus_client estiver instrumentado
+  port: 8502
+
+# ── ConfigMap — variáveis não-sensíveis ──────────────────
+config:
+  METEORAG_INMET_BASE_URL: "https://apitempo.inmet.gov.br"
+  METEORAG_INMET_CACHE_TTL_SECONDS: "1800"
+  METEORAG_INMET_RETRY_MAX: "3"
+  METEORAG_INMET_TIMEOUT_SECONDS: "20"
+  METEORAG_OPENMETEO_TIMEOUT_SECONDS: "20"
+  METEORAG_DEFAULT_DAYS_BACK: "7"
+  METEORAG_LLM_MODEL: "claude-haiku-4-5-20251001"
+  METEORAG_LLM_MAX_TOKENS: "8192"
+  METEORAG_LLM_TIMEOUT_SECONDS: "30"
+  METEORAG_RAG_TOP_K: "8"
+  METEORAG_RAG_MAX_CHUNK_SIZE: "512"
+  METEORAG_RAG_MAX_HOURLY_CHUNKS: "96"
+  METEORAG_APP_PORT: "8501"
+  METEORAG_LOG_LEVEL: "INFO"
+  METEORAG_ENVIRONMENT: "production"
+
+# ── Secrets — placeholder (valores via --set) ────────────
+secrets:
+  anthropicApiKey: ""            # Injetado via CI/CD: --set secrets.anthropicApiKey=sk-...

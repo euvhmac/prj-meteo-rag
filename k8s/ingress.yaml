@@ -1,1 +1,32 @@
-# Placeholder — será implementado na Sprint 3
+# MeteoRAG — Ingress
+# Requer Ingress Controller (nginx) e cert-manager para TLS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: meteorag
+  namespace: meteorag
+  labels:
+    app: meteorag
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+    # ── TLS via cert-manager (descomentar quando disponível) ──
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: meteorag.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: meteorag
+                port:
+                  number: 8501
+  # ── TLS (descomentar quando cert-manager estiver configurado) ──
+  # tls:
+  #   - hosts:
+  #       - meteorag.example.com
+  #     secretName: meteorag-tls

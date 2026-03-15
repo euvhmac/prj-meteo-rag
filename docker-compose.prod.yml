@@ -1,21 +1,27 @@
 # MeteoRAG — Docker Compose (Produção)
-version: "3.9"
+# Uso: docker compose -f docker-compose.prod.yml up -d
+#
+# Sem volume mount — imagem contém o código.
+# Secrets via env_file (nunca commitar .env.prod).
 
 services:
   meteorag:
-    image: ghcr.io/meteorag/meteorag:latest
+    image: ghcr.io/victorliquiddata/meteorag:latest
     container_name: meteorag-prod
     ports:
-      - "8501:8501"
+      - "${METEORAG_APP_PORT:-8501}:8501"
     env_file:
-      - .env
+      - .env.prod
+    environment:
+      - METEORAG_ENVIRONMENT=production
+      - METEORAG_LOG_LEVEL=INFO
     restart: always
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8501/_stcore/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 15s
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -24,3 +30,8 @@ services:
         reservations:
           cpus: "0.25"
           memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
