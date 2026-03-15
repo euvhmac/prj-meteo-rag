@@ -200,7 +200,7 @@ def render_sidebar() -> None:
             "Dados: [Open-Meteo](https://open-meteo.com) + [INMET](https://portal.inmet.gov.br)"
         )
         st.caption("LLM: Claude Haiku (Anthropic)")
-        st.caption("v0.4.0 — Sprint 4")
+        st.caption("v1.0.0 — MeteoRAG")
 
 
 def _load_data(selected_cities: list[str], days_back: int) -> None:
@@ -522,7 +522,7 @@ def _render_temp_chart(all_summaries: dict[str, list[dict[str, Any]]]) -> None:
 
 
 def _render_data_table(all_summaries: dict[str, list[dict[str, Any]]]) -> None:
-    """Tabela detalhada de dados com filtro por cidade."""
+    """Tabela detalhada de dados com filtro por cidade e export CSV."""
     cities = list(all_summaries.keys())
     selected_city = st.selectbox("Selecione a cidade", options=cities)
 
@@ -553,6 +553,59 @@ def _render_data_table(all_summaries: dict[str, list[dict[str, Any]]]) -> None:
             )
 
         st.dataframe(table_data, use_container_width=True, hide_index=True)
+
+        # ── Export CSV (S5-15) ──
+        csv_data = _build_csv(all_summaries)
+        st.download_button(
+            label="📥 Exportar CSV",
+            data=csv_data,
+            file_name="meteorag_dados.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+
+def _build_csv(all_summaries: dict[str, list[dict[str, Any]]]) -> str:
+    """Constrói CSV com dados de todas as cidades da sessão.
+
+    Args:
+        all_summaries: Sumários por cidade.
+
+    Returns:
+        String CSV completa com header.
+    """
+    import csv
+    import io
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(
+        [
+            "Cidade",
+            "Data",
+            "Chuva (mm)",
+            "Temp. Máx (°C)",
+            "Temp. Mín (°C)",
+            "Umidade Média (%)",
+            "Observações",
+        ]
+    )
+
+    for city, summaries in all_summaries.items():
+        for s in sorted(summaries, key=lambda x: x.get("date", "")):
+            writer.writerow(
+                [
+                    city,
+                    s.get("date", ""),
+                    s.get("total_rain_mm", ""),
+                    s.get("max_temp_c", ""),
+                    s.get("min_temp_c", ""),
+                    s.get("avg_humidity_pct", ""),
+                    s.get("observation_count", 0),
+                ]
+            )
+
+    return output.getvalue()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -631,6 +684,81 @@ def render_tab_debug() -> None:
 
 
 # ═══════════════════════════════════════════════════════════
+# Tab Sobre (S5-12 + S5-13)
+# ═══════════════════════════════════════════════════════════
+
+
+def render_tab_sobre() -> None:
+    """Renderiza a aba 'Sobre' com contexto, fontes, disclaimer e limitações."""
+    st.markdown("""
+        ## 🌦️ Sobre o MeteoRAG
+
+        **MeteoRAG** é um assistente meteorológico inteligente que combina dados públicos
+        em tempo real com inteligência artificial para responder perguntas sobre o clima
+        em Minas Gerais, com foco na **Zona da Mata mineira**.
+
+        ### 🔧 Como funciona
+
+        1. **Coleta de dados** — Dados meteorológicos são obtidos via API Open-Meteo
+           (modelos de reanálise ERA5 e previsão GFS). Alertas vêm da API do INMET.
+        2. **Indexação RAG** — Os dados são convertidos em chunks de texto e indexados
+           usando TF-IDF para busca por similaridade.
+        3. **Geração de resposta** — Sua pergunta é combinada com os chunks mais
+           relevantes e enviada ao LLM (Claude Haiku 4.5) para gerar uma resposta
+           contextualizada.
+
+        ### 📡 Fontes de Dados
+
+        | Fonte | Uso | URL |
+        |-------|-----|-----|
+        | **Open-Meteo** | Dados horários, diários e atuais | [open-meteo.com](https://open-meteo.com) |
+        | **INMET** | Alertas meteorológicos (best-effort) | [portal.inmet.gov.br](https://portal.inmet.gov.br) |
+
+        ### 📍 Cidades Monitoradas
+
+        Juiz de Fora · Ubá · Barbacena · Muriaé · Viçosa · Cataguases · Belo Horizonte
+
+        ### 🤖 Tecnologias
+
+        - **LLM**: Claude Haiku 4.5 (Anthropic)
+        - **RAG**: TF-IDF + Cosine Similarity (scikit-learn)
+        - **UI**: Streamlit + Plotly
+        - **Observabilidade**: Prometheus + Grafana + structlog
+        - **Infra**: Docker + Kubernetes + Helm
+
+        ---
+        """)
+
+    # Disclaimer (S5-13) — visível e destacado
+    st.warning(
+        "⚠️ **Disclaimer sobre dados meteorológicos**\n\n"
+        "Os dados exibidos neste aplicativo são obtidos de fontes públicas "
+        "e modelos numéricos:\n\n"
+        "- **Dados meteorológicos** vêm do **Open-Meteo** (reanálise ERA5 / previsão GFS), "
+        "não de estações físicas locais. Podem apresentar imprecisões inerentes "
+        "aos modelos numéricos, especialmente em áreas com topografia complexa.\n\n"
+        "- **Alertas meteorológicos** vêm da API pública do **INMET** e podem ter "
+        "atraso na atualização. A disponibilidade depende da API do INMET.\n\n"
+        "**Este projeto NÃO substitui os canais oficiais de alerta da Defesa Civil.** "
+        "Para emergências, consulte "
+        "[alertas2.inmet.gov.br](https://alertas2.inmet.gov.br) "
+        "ou ligue **199** (Defesa Civil).",
+        icon="⚠️",
+    )
+
+    st.markdown("""
+        ---
+
+        ### 📄 Licença
+
+        MIT — Código aberto disponível no
+        [GitHub](https://github.com/victorliquiddata/meteorag).
+
+        **v1.0.0** — MeteoRAG
+        """)
+
+
+# ═══════════════════════════════════════════════════════════
 # Main
 # ═══════════════════════════════════════════════════════════
 
@@ -658,7 +786,9 @@ def main() -> None:
     render_alerts()
 
     # Tabs principais
-    tab_chat, tab_dados, tab_debug = st.tabs(["💬 Chat", "📊 Dados", "🔧 Debug RAG"])
+    tab_chat, tab_dados, tab_debug, tab_sobre = st.tabs(
+        ["\U0001f4ac Chat", "\U0001f4ca Dados", "\U0001f527 Debug RAG", "\u2139 Sobre"]
+    )
 
     with tab_chat:
         render_tab_chat()
@@ -668,6 +798,9 @@ def main() -> None:
 
     with tab_debug:
         render_tab_debug()
+
+    with tab_sobre:
+        render_tab_sobre()
 
 
 if __name__ == "__main__":

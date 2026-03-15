@@ -409,6 +409,266 @@ class TestINMETClient:
 
 
 # ══════════════════════════════════════════════════════════
+# Edge Cases — HTTP (S5-05)
+# ══════════════════════════════════════════════════════════
+
+
+class TestINMETEdgeCases:
+    """Testes de edge cases para a API INMET (204, 503, timeout, dados parciais)."""
+
+    def _make_client(self) -> INMETClient:
+        settings = Settings(
+            inmet_base_url="https://apitempo.inmet.gov.br",
+            inmet_cache_ttl_seconds=60,
+            inmet_retry_max=2,
+            inmet_timeout_seconds=5,
+        )
+        client = INMETClient(settings=settings)
+        client._circuit_breaker.reset()
+        return client
+
+    def test_http_503_service_unavailable_retries(self) -> None:
+        """HTTP 503 (Service Unavailable) deve causar retry."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 503
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
+
+        with (
+            patch.object(client._session, "get", return_value=mock_resp) as mock_get,
+            patch("meteorag.api.inmet_client.time.sleep"),
+        ):
+            result = client.get_stations()
+
+        assert result == []
+        assert mock_get.call_count == 2  # Fez retry
+
+    def test_http_429_rate_limited_retries(self) -> None:
+        """HTTP 429 (Too Many Requests) deve causar retry (exceção do 4xx)."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 429
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
+
+        with (
+            patch.object(client._session, "get", return_value=mock_resp) as mock_get,
+            patch("meteorag.api.inmet_client.time.sleep"),
+        ):
+            result = client.get_stations()
+
+        assert result == []
+        assert mock_get.call_count == 2  # Retry para 429
+
+    def test_connection_error_retries(self) -> None:
+        """ConnectionError deve causar retry."""
+        client = self._make_client()
+
+        with (
+            patch.object(
+                client._session,
+                "get",
+                side_effect=requests.exceptions.ConnectionError("connection refused"),
+            ) as mock_get,
+            patch("meteorag.api.inmet_client.time.sleep"),
+        ):
+            result = client.get_stations()
+
+        assert result == []
+        assert mock_get.call_count == 2
+
+    def test_timeout_then_success(self) -> None:
+        """Primeira tentativa timeout, segunda sucesso."""
+        client = self._make_client()
+        mock_ok_resp = MagicMock()
+        mock_ok_resp.status_code = 200
+        mock_ok_resp.json.return_value = [{"CD_ESTACAO": "A518"}]
+        mock_ok_resp.raise_for_status = MagicMock()
+
+        with (
+            patch.object(
+                client._session,
+                "get",
+                side_effect=[requests.exceptions.Timeout("timeout"), mock_ok_resp],
+            ),
+            patch("meteorag.api.inmet_client.time.sleep"),
+        ):
+            result = client.get_stations()
+
+        assert len(result) == 1
+        assert result[0]["CD_ESTACAO"] == "A518"
+
+    def test_non_list_response_handled(self) -> None:
+        """Resposta JSON que não é lista deve retornar lista vazia."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"error": "unexpected format"}
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch.object(client._session, "get", return_value=mock_resp):
+            result = client.get_stations()
+
+        assert result == []
+
+    def test_empty_json_array_response(self) -> None:
+        """Resposta com array JSON vazio deve retornar lista vazia."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = []
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch.object(client._session, "get", return_value=mock_resp):
+            result = client.get_stations()
+
+        assert result == []
+
+    def test_partial_data_mixed_valid_invalid(self) -> None:
+        """Observação com mix de valores válidos e inválidos (dados parciais)."""
+        raw = {
+            "CD_ESTACAO": "A518",
+            "DT_MEDICAO": "2024-01-15",
+            "HR_MEDICAO": "1200 UTC",
+            "CHUVA": "5.2",
+            "TEM_INS": "-9999",
+            "TEM_MAX": None,
+            "TEM_MIN": "18.0",
+            "UMD_INS": "",
+            "VEN_VEL": "3.5",
+            "VEN_DIR": "9999",
+            "PRE_INS": "912.5",
+            "RAD_GLO": "abc",
+        }
+        parsed = parse_observation(raw)
+
+        assert parsed["rain_mm"] == 5.2  # válido
+        assert parsed["temp_c"] is None  # -9999 → None
+        assert parsed["temp_max_c"] is None  # None original
+        assert parsed["temp_min_c"] == 18.0  # válido
+        assert parsed["humidity_pct"] is None  # "" → None
+        assert parsed["wind_speed_ms"] == 3.5  # válido
+        assert parsed["wind_dir_deg"] is None  # 9999 → None
+        assert parsed["pressure_hpa"] == 912.5  # válido
+        assert parsed["radiation_kjm2"] is None  # "abc" → None
+
+    def test_daily_summary_all_null_observations(self) -> None:
+        """Sumário diário quando todas as observações têm valores None."""
+        observations = [
+            {
+                "station_code": "A518",
+                "date": "2024-01-20",
+                "time": "0000",
+                "rain_mm": None,
+                "temp_c": None,
+                "temp_max_c": None,
+                "temp_min_c": None,
+                "humidity_pct": None,
+                "wind_speed_ms": None,
+                "wind_dir_deg": None,
+                "pressure_hpa": None,
+                "radiation_kjm2": None,
+            }
+        ]
+        summary = get_daily_summary(observations, "Juiz de Fora", "A518", "2024-01-20")
+
+        assert summary["observation_count"] == 1
+        assert summary["total_rain_mm"] is None
+        assert summary["max_temp_c"] is None
+        assert summary["min_temp_c"] is None
+        assert summary["avg_humidity_pct"] is None
+
+    def test_circuit_breaker_opens_after_threshold(self) -> None:
+        """Circuit breaker abre apos 5 falhas consecutivas."""
+        client = self._make_client()
+        client._circuit_breaker.reset()
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 500
+        mock_resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=mock_resp)
+
+        with (
+            patch.object(client._session, "get", return_value=mock_resp),
+            patch("meteorag.api.inmet_client.time.sleep"),
+        ):
+            # _request registra 1 record_failure() por chamada (apos esgotar retries).
+            # threshold=5, entao precisamos de 5 chamadas completas.
+            for _ in range(5):
+                client.clear_cache()
+                client.get_stations()
+
+        assert client.circuit_breaker_state == "open"
+
+    def test_circuit_breaker_blocks_requests_when_open(self) -> None:
+        """Quando CB está aberto, requests não são feitas."""
+        client = self._make_client()
+
+        # Força CB aberto
+        for _ in range(5):
+            client._circuit_breaker.record_failure()
+
+        assert client._circuit_breaker.is_open
+
+        with patch.object(client._session, "get") as mock_get:
+            result = client.get_stations()
+
+        mock_get.assert_not_called()
+        assert result == []
+
+    def test_expired_cache_served_when_cb_open(self) -> None:
+        """Cache expirado é servido quando circuit breaker está aberto."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [{"CD_ESTACAO": "A518", "DC_NOME": "JF"}]
+        mock_resp.raise_for_status = MagicMock()
+
+        # Popula cache
+        with patch.object(client._session, "get", return_value=mock_resp):
+            client.get_stations()
+
+        # Força CB aberto
+        for _ in range(5):
+            client._circuit_breaker.record_failure()
+
+        # Mesmo com CB aberto, cache expirado deve ser servido
+        result = client.get_stations()
+        assert len(result) == 1
+
+    def test_get_alerts_empty_state(self) -> None:
+        """Alertas para estado sem alertas retorna lista vazia."""
+        client = self._make_client()
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = [{"estado": "SP", "descricao": "teste SP"}]
+        mock_resp.raise_for_status = MagicMock()
+
+        with patch.object(client._session, "get", return_value=mock_resp):
+            result = client.get_alerts("MG")
+
+        assert result == []
+
+    def test_parse_alert_with_alternative_field_names(self) -> None:
+        """parse_alert suporta nomes de campos alternativos."""
+        client = self._make_client()
+        raw = {
+            "id": "999",
+            "descricao": "Teste",
+            "severidade": "Perigo Potencial",
+            "dt_inicio": "2024-02-01T08:00:00",
+            "dt_fim": "2024-02-02T08:00:00",
+            "evento": "Ventos Fortes",
+            "municipios": "Ubá",
+            "uf": "MG",
+        }
+        parsed = client.parse_alert(raw)
+
+        assert parsed["id"] == "999"
+        assert parsed["severity"] == "Perigo Potencial"
+        assert parsed["start"] == "2024-02-01T08:00:00"
+        assert parsed["state"] == "MG"
+
+
+# ══════════════════════════════════════════════════════════
 # Fixture sanity checks (preservados da Sprint 0)
 # ══════════════════════════════════════════════════════════
 
