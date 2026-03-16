@@ -48,6 +48,12 @@ docker-compose.override.yml
 # ── OS ───────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+
+# ── Projeto v2 (privado, não sobe pro GitHub) ───────────
+docs/ROADMAP_V2.md
+data/
+*.parquet
+*.duckdb
 Desktop.ini
 
 # ── Misc ─────────────────────────────────────────────────
